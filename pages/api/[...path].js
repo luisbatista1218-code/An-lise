@@ -1,50 +1,48 @@
 import { Pool } from 'pg';
 
-/* ================== POOL GLOBAL (SERVERLESS SAFE) ================== */
+/* ================= POOL GLOBAL (NEON + SERVERLESS) ================= */
 let pool;
-
 if (!global.pgPool) {
   global.pgPool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
   });
 }
-
 pool = global.pgPool;
 
-/* ================== CONFIG ================== */
+/* ================= CONFIG ================= */
 export const config = {
   api: {
     bodyParser: true
   }
 };
 
-/* ================== HANDLER ================== */
+/* ================= HANDLER ================= */
 export default async function handler(req, res) {
   try {
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    const path = url.pathname.replace('/api/', '');
-    const query = Object.fromEntries(url.searchParams);
+    // Rota dinâmica: /api/produtos → ['produtos']
+    const rota = req.query.path?.[0] || '';
 
     /* ================= HEALTH ================= */
-    if (path === '' || path === 'health') {
+    if (rota === '' || rota === 'health') {
       return res.json({
         status: '✅ API FUNCIONANDO',
-        banco: 'Neon PostgreSQL',
-        tabelas: ['produtos', 'vendas']
+        banco: 'Neon PostgreSQL'
       });
     }
 
     /* ================= DASHBOARD ================= */
-    if (path === 'dashboard') {
-      const periodo = query.periodo || 'hoje';
+    if (rota === 'dashboard') {
+      const periodo = req.query.periodo || 'hoje';
 
       let filtro = '';
       if (periodo === 'hoje') {
         filtro = "WHERE DATE(data_venda) = CURRENT_DATE";
-      } else if (periodo === 'semana') {
+      }
+      if (periodo === 'semana') {
         filtro = "WHERE data_venda >= CURRENT_DATE - INTERVAL '7 days'";
-      } else if (periodo === 'mes') {
+      }
+      if (periodo === 'mes') {
         filtro = "WHERE data_venda >= CURRENT_DATE - INTERVAL '30 days'";
       }
 
@@ -52,14 +50,14 @@ export default async function handler(req, res) {
         pool.query(`
           SELECT 
             COUNT(*) AS total_vendas,
-            COALESCE(SUM(valor_total), 0) AS faturamento,
-            COALESCE(AVG(valor_total), 0) AS ticket_medio
+            COALESCE(SUM(valor_total),0) AS faturamento,
+            COALESCE(AVG(valor_total),0) AS ticket_medio
           FROM vendas ${filtro}
         `),
         pool.query(`
           SELECT 
             COUNT(*) AS total_produtos,
-            COALESCE(SUM(quantidade), 0) AS total_estoque
+            COALESCE(SUM(quantidade),0) AS total_estoque
           FROM produtos
         `),
         pool.query(`
@@ -83,34 +81,34 @@ export default async function handler(req, res) {
     }
 
     /* ================= PRODUTOS ================= */
-    if (path === 'produtos') {
+    if (rota === 'produtos') {
       if (req.method === 'GET') {
-        const result = await pool.query(
+        const r = await pool.query(
           'SELECT * FROM produtos ORDER BY id DESC'
         );
-        return res.json(result.rows);
+        return res.json(r.rows);
       }
 
       if (req.method === 'POST') {
         const { nome, quantidade, valor_venda } = req.body;
 
-        const result = await pool.query(
+        const r = await pool.query(
           `INSERT INTO produtos (nome, quantidade, valor_venda)
-           VALUES ($1, $2, $3) RETURNING *`,
+           VALUES ($1,$2,$3) RETURNING *`,
           [nome, quantidade || 0, valor_venda || 0]
         );
 
-        return res.json(result.rows[0]);
+        return res.json(r.rows[0]);
       }
     }
 
     /* ================= VENDAS ================= */
-    if (path === 'vendas') {
+    if (rota === 'vendas') {
       if (req.method === 'GET') {
-        const result = await pool.query(
+        const r = await pool.query(
           'SELECT * FROM vendas ORDER BY data_venda DESC'
         );
-        return res.json(result.rows);
+        return res.json(r.rows);
       }
 
       if (req.method === 'POST') {
@@ -122,21 +120,21 @@ export default async function handler(req, res) {
           [produto_id]
         );
 
-        if (produto.rows.length === 0) {
+        if (!produto.rows.length) {
           return res.status(400).json({ error: 'Produto não encontrado' });
         }
 
         if (produto.rows[0].quantidade < quantidade) {
           return res.status(400).json({
             error: 'Estoque insuficiente',
-            estoque: produto.rows[0].quantidade
+            disponivel: produto.rows[0].quantidade
           });
         }
 
         const venda = await pool.query(
-          `INSERT INTO vendas 
+          `INSERT INTO vendas
            (produto_id, produto_nome, quantidade, valor_unitario, valor_total)
-           VALUES ($1, $2, $3, $4, $5)
+           VALUES ($1,$2,$3,$4,$5)
            RETURNING *`,
           [produto_id, produto_nome, quantidade, valor_unitario, valor_total]
         );
@@ -152,7 +150,7 @@ export default async function handler(req, res) {
 
     /* ================= 404 ================= */
     return res.status(404).json({
-      error: `Rota não encontrada: /api/${path}`
+      error: `Rota não encontrada: /api/${rota}`
     });
 
   } catch (err) {
