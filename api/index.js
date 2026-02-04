@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 
-/* ================= POOL GLOBAL (NEON + SERVERLESS) ================= */
+/* ================= POOL GLOBAL ================= */
 let pool;
 if (!global.pgPool) {
   global.pgPool = new Pool({
@@ -10,21 +10,17 @@ if (!global.pgPool) {
 }
 pool = global.pgPool;
 
-/* ================= CONFIG ================= */
-export const config = {
-  api: {
-    bodyParser: true
-  }
-};
-
 /* ================= HANDLER ================= */
 export default async function handler(req, res) {
   try {
-    // Rota dinâmica: /api/produtos → ['produtos']
-    const rota = req.query.path?.[0] || '';
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const path = url.pathname.replace('/api/', '');
+    const query = Object.fromEntries(url.searchParams);
+
+    console.log('Rota:', path);
 
     /* ================= HEALTH ================= */
-    if (rota === '' || rota === 'health') {
+    if (path === '' || path === 'health') {
       return res.json({
         status: '✅ API FUNCIONANDO',
         banco: 'Neon PostgreSQL'
@@ -32,8 +28,8 @@ export default async function handler(req, res) {
     }
 
     /* ================= DASHBOARD ================= */
-    if (rota === 'dashboard') {
-      const periodo = req.query.periodo || 'hoje';
+    if (path === 'dashboard') {
+      const periodo = query.periodo || 'hoje';
 
       let filtro = '';
       if (periodo === 'hoje') {
@@ -81,7 +77,7 @@ export default async function handler(req, res) {
     }
 
     /* ================= PRODUTOS ================= */
-    if (rota === 'produtos') {
+    if (path === 'produtos') {
       if (req.method === 'GET') {
         const r = await pool.query(
           'SELECT * FROM produtos ORDER BY id DESC'
@@ -103,7 +99,7 @@ export default async function handler(req, res) {
     }
 
     /* ================= VENDAS ================= */
-    if (rota === 'vendas') {
+    if (path === 'vendas') {
       if (req.method === 'GET') {
         const r = await pool.query(
           'SELECT * FROM vendas ORDER BY data_venda DESC'
@@ -150,7 +146,7 @@ export default async function handler(req, res) {
 
     /* ================= 404 ================= */
     return res.status(404).json({
-      error: `Rota não encontrada: /api/${rota}`
+      error: `Rota não encontrada: /api/${path}`
     });
 
   } catch (err) {
