@@ -142,4 +142,4 @@ export default async function handler(req, res) {
     console.error('Erro API:', error);
     res.status(500).json({ error: error.message });
   }
-        }
+}  // ← SÓ ESTE } NO FINAL!
