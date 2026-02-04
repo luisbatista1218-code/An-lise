@@ -1,5 +1,5 @@
 {
-  "name": "sistema-vendas",
+  "name": "an-lise",
   "type": "module",
   "dependencies": {
     "pg": "^8.11.0"
