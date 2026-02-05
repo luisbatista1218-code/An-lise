@@ -3,12 +3,32 @@ import { Pool } from 'pg';
 /* ================= POOL GLOBAL ================= */
 let pool;
 if (!global.pgPool) {
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL não definida na Vercel');
+  }
+
   global.pgPool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
   });
 }
 pool = global.pgPool;
+
+/* ================= BODY PARSER ================= */
+async function parseBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', chunk => (data += chunk));
+    req.on('end', () => {
+      if (!data) return resolve({});
+      try {
+        resolve(JSON.parse(data));
+      } catch (e) {
+        reject(new Error('JSON inválido'));
+      }
+    });
+  });
+}
 
 /* ================= HANDLER ================= */
 export default async function handler(req, res) {
@@ -17,13 +37,21 @@ export default async function handler(req, res) {
     const path = url.pathname.replace('/api/', '');
     const query = Object.fromEntries(url.searchParams);
 
-    console.log('Rota:', path);
+    let body = {};
+    if (req.method === 'POST') {
+      body = await parseBody(req);
+    }
 
     /* ================= HEALTH ================= */
     if (path === '' || path === 'health') {
+      const r = await pool.query(
+        'SELECT current_database() AS db, now() AS hora'
+      );
+
       return res.json({
-        status: '✅ API FUNCIONANDO',
-        banco: 'Neon PostgreSQL'
+        status: '✅ API + BANCO FUNCIONANDO',
+        banco: r.rows[0].db,
+        hora: r.rows[0].hora
       });
     }
 
@@ -32,15 +60,12 @@ export default async function handler(req, res) {
       const periodo = query.periodo || 'hoje';
 
       let filtro = '';
-      if (periodo === 'hoje') {
+      if (periodo === 'hoje')
         filtro = "WHERE DATE(data_venda) = CURRENT_DATE";
-      }
-      if (periodo === 'semana') {
+      if (periodo === 'semana')
         filtro = "WHERE data_venda >= CURRENT_DATE - INTERVAL '7 days'";
-      }
-      if (periodo === 'mes') {
+      if (periodo === 'mes')
         filtro = "WHERE data_venda >= CURRENT_DATE - INTERVAL '30 days'";
-      }
 
       const [vendas, produtos, top] = await Promise.all([
         pool.query(`
@@ -86,11 +111,12 @@ export default async function handler(req, res) {
       }
 
       if (req.method === 'POST') {
-        const { nome, quantidade, valor_venda } = req.body;
+        const { nome, quantidade, valor_venda } = body;
 
         const r = await pool.query(
           `INSERT INTO produtos (nome, quantidade, valor_venda)
-           VALUES ($1,$2,$3) RETURNING *`,
+           VALUES ($1,$2,$3)
+           RETURNING *`,
           [nome, quantidade || 0, valor_venda || 0]
         );
 
@@ -108,7 +134,7 @@ export default async function handler(req, res) {
       }
 
       if (req.method === 'POST') {
-        const { produto_id, produto_nome, quantidade, valor_unitario } = req.body;
+        const { produto_id, produto_nome, quantidade, valor_unitario } = body;
         const valor_total = quantidade * valor_unitario;
 
         const produto = await pool.query(
@@ -151,6 +177,10 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error('ERRO API:', err);
-    return res.status(500).json({ error: err.message });
+
+    return res.status(500).json({
+      error: err.message,
+      hasDatabaseUrl: !!process.env.DATABASE_URL
+    });
   }
 }
