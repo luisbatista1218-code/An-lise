@@ -34,7 +34,8 @@ async function parseBody(req) {
 export default async function handler(req, res) {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
-    const path = url.pathname.replace('/api/', '');
+const path = url.pathname === '/api' ? '' : url.pathname.replace('/api/', '');
+
     const query = Object.fromEntries(url.searchParams);
 
     let body = {};
