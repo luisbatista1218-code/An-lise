@@ -1,0 +1,7 @@
+{
+  "build": {
+    "env": {
+      "SUPABASE_ANON_KEY": "@supabase_anon_key"
+    }
+  }
+}
